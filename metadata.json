@@ -1,0 +1,7 @@
+{
+  "name": "OpsFlow - Business Command Center",
+  "description": "A high-performance operations intelligence platform for small businesses. Manage inventory, scan invoices with AI, generate marketing content, and track logistics from a single, dark-themed command center.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
