@@ -23,7 +23,7 @@ export const geminiService = {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
         contents: [{
           parts: [
             { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
@@ -46,7 +46,7 @@ export const geminiService = {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
         contents: `Generate multi-channel marketing for: ${productInfo}`,
         config: {
           responseMimeType: "application/json",
@@ -79,7 +79,7 @@ export const geminiService = {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
         contents: `Analyze inventory health: ${JSON.stringify(items)}`
       });
       return response.text || "Health check successful.";
