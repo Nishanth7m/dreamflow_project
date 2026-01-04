@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ViewType, ActionLogEntry, InventoryItem } from './types';
 import { INITIAL_INVENTORY, INITIAL_SHIPMENTS } from './constants';
 import Sidebar from './components/Sidebar';
@@ -14,7 +14,15 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [logs, setLogs] = useState<ActionLogEntry[]>([]);
   const [inventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
-  const isAdvanced = geminiService.hasAiKey();
+  // isAiActive will now reflect the *current* state of AI service activity
+  const [isAiActive, setIsAiActive] = useState(geminiService.isAiActive());
+
+  // Effect to update isAiActive when the service state potentially changes
+  useEffect(() => {
+    // Initial check (useful if a pre-flight or dummy call was made, though not implemented here)
+    setIsAiActive(geminiService.isAiActive());
+  }, []);
+
 
   const addLog = useCallback((type: ActionLogEntry['type'], message: string) => {
     const newLog: ActionLogEntry = {
@@ -25,6 +33,8 @@ const App: React.FC = () => {
       status: 'completed'
     };
     setLogs(prev => [newLog, ...prev]);
+    // After an action that might use AI, check its status
+    setIsAiActive(geminiService.isAiActive()); 
   }, []);
 
   const renderQuickActions = () => (
@@ -89,9 +99,10 @@ const App: React.FC = () => {
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end">
               <div className="flex items-center gap-2">
-                 <span className={`w-2 h-2 rounded-full ${isAdvanced ? 'bg-teal-500 shadow-[0_0_10px_#14b8a6]' : 'bg-blue-500 shadow-[0_0_10px_#3b82f6]'}`} />
+                 {/* Use isAiActive directly */}
+                 <span className={`w-2 h-2 rounded-full ${isAiActive ? 'bg-teal-500 shadow-[0_0_10px_#14b8a6]' : 'bg-blue-500 shadow-[0_0_10px_#3b82f6]'}`} />
                  <p className="text-[10px] text-gray-500 font-mono uppercase font-bold">
-                   System: {isAdvanced ? 'Advanced (AI)' : 'Standard (Local)'}
+                   System: {isAiActive ? 'Advanced (AI)' : 'Standard (Local)'}
                  </p>
               </div>
               <p className="text-[11px] font-bold text-gray-400">SESSION_LIVE_STABLE</p>

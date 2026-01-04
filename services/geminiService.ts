@@ -1,90 +1,126 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { MarketingContent } from "../types";
+
+// Define a common interface for the proxy request payload
+interface ProxyRequestPayload {
+  modelName: string;
+  contents: any; // Could be string or object with parts
+  config?: any; // For systemInstruction, responseMimeType, etc.
+}
+
+interface ProxyResponse {
+  data: string | MarketingContent | any; // Could be string for text, or MarketingContent for JSON
+  error?: string;
+}
 
 /**
  * OpsFlow Intelligence Service.
- * Optimized for "Free Tier" deployment using a Local-First Heuristic Engine.
+ * Leverages Netlify Function Proxy for secure AI calls, falls back to Local-First Heuristic Engine on failure.
  */
 export const geminiService = {
-  // Detection logic for AI capabilities
-  hasAiKey(): boolean {
-    const key = process.env.API_KEY;
-    return !!key && key !== 'undefined' && key.length > 20;
+  // Flag to indicate if AI functionality is actively enabled (i.e., proxy works)
+  // This will be set dynamically based on successful proxy calls.
+  _isAiActive: false,
+
+  isAiActive(): boolean {
+    return this._isAiActive;
+  },
+
+  async callProxy(payload: ProxyRequestPayload): Promise<ProxyResponse> {
+    try {
+      const response = await fetch('/.netlify/functions/gemini-proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Proxy error: ${response.statusText}`);
+      }
+
+      const result: ProxyResponse = await response.json();
+      this._isAiActive = true; // Mark AI as active on successful call
+      return result;
+    } catch (e: any) {
+      console.error("Error calling Gemini proxy:", e);
+      this._isAiActive = false; // Mark AI as inactive on failure
+      // Provide a more user-friendly message for no API key, as it's a common initial setup issue
+      if (e.message.includes("API_KEY environment variable not set")) {
+        throw new Error("AI Service not configured. Please add your Google Gemini API Key to Netlify Environment Variables (API_KEY) and redeploy.");
+      }
+      throw e; // Re-throw to be caught by specific service methods
+    }
   },
 
   async analyzeInvoice(imageBase64: string): Promise<string> {
-    if (!this.hasAiKey()) {
-      // Logic for Standard Local Engine
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return this.localInvoiceHeuristic();
-    }
-
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-      const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
+      const payload: ProxyRequestPayload = {
+        modelName: 'gemini-flash-latest',
         contents: [{
           parts: [
             { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
             { text: 'Extract: Vendor, Total, Date, and Line Items.' }
           ]
         }]
-      });
-      return response.text || this.localInvoiceHeuristic();
-    } catch (e) {
+      };
+      const proxyResponse = await this.callProxy(payload);
+      return proxyResponse.data as string;
+    } catch (e: any) {
+      // Fallback to local heuristic if proxy fails
+      // Log the specific error for debugging, but return local message
+      console.error("Invoice analysis failed via AI, using local heuristic:", e.message);
       return this.localInvoiceHeuristic();
     }
   },
 
   async generateMarketing(productInfo: string): Promise<MarketingContent> {
-    if (!this.hasAiKey()) {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      return this.localMarketingHeuristic(productInfo);
-    }
-
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-      const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
+      const payload: ProxyRequestPayload = {
+        modelName: 'gemini-flash-latest',
         contents: `Generate multi-channel marketing for: ${productInfo}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              instagram: { type: Type.STRING },
-              email: { type: Type.STRING },
-              twitter: { type: Type.STRING }
-            },
-            required: ["instagram", "email", "twitter"]
+          // Send string representations of Type enum for serialization across network
+          responseSchema: { 
+             type: "OBJECT", 
+             properties: {
+               instagram: { type: "STRING" },
+               email: { type: "STRING" },
+               twitter: { type: "STRING" }
+             },
+             required: ["instagram", "email", "twitter"]
           }
         }
-      });
-      return JSON.parse(response.text || '{}');
-    } catch (e) {
+      };
+      const proxyResponse = await this.callProxy(payload);
+      return proxyResponse.data as MarketingContent;
+    } catch (e: any) {
+      console.error("Marketing generation failed via AI, using local heuristic:", e.message);
       return this.localMarketingHeuristic(productInfo);
     }
   },
 
   async suggestInventoryActions(items: any[]): Promise<string> {
     const criticalItems = items.filter(i => i.stock < i.minThreshold);
-    
-    if (!this.hasAiKey()) {
-      if (criticalItems.length === 0) return "STANDARD ENGINE: Inventory levels appear healthy across all tracked categories.";
-      const names = criticalItems.map(i => i.name).join(", ");
-      return `STANDARD ENGINE: Low stock alert for [${names}]. Recommended restock quantity: 2x current minimum threshold.`;
-    }
+    // Always provide a local heuristic result for critical items regardless of AI status
+    const localCriticalAlert = criticalItems.length > 0
+      ? `STANDARD ENGINE: Low stock alert for [${criticalItems.map(i => i.name).join(", ")}]. Recommended restock quantity: 2x current minimum threshold.`
+      : "STANDARD ENGINE: Inventory levels appear healthy across all tracked categories.";
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-      const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest', // Changed to gemini-flash-latest for generous free tier
-        contents: `Analyze inventory health: ${JSON.stringify(items)}`
-      });
-      return response.text || "Health check successful.";
-    } catch (e) {
-      return "Local Analysis: High demand patterns detected in Packaging category.";
+      const payload: ProxyRequestPayload = {
+        modelName: 'gemini-flash-latest',
+        contents: `Analyze inventory health: ${JSON.stringify(items)}. Prioritize critical items. Give concise actions.`,
+      };
+      const proxyResponse = await this.callProxy(payload);
+      return proxyResponse.data as string;
+    } catch (e: any) {
+      console.error("Inventory analysis failed via AI, using local heuristic:", e.message);
+      // Fallback to local heuristic if proxy fails
+      return localCriticalAlert;
     }
   },
 
@@ -101,7 +137,7 @@ ESTIMATED TOTAL: $---.-- (Review image)
 STATUS: READY FOR MANUAL VERIFICATION
 
 Note: Standard Mode active. Advanced AI OCR 
-is available with an API link.`;
+is available by adding your Google Gemini API Key to Netlify.`;
   },
 
   localMarketingHeuristic(input: string): MarketingContent {
